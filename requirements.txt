@@ -1,0 +1,10 @@
+apache-airflow-providers-postgres
+beautifulsoup4
+google-api-python-client
+gspread
+oauth2client
+pandas
+psycopg2-binary
+torch
+transformers
+yfinance
