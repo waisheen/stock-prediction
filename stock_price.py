@@ -4,6 +4,7 @@ import pandas as pd
 import psycopg2
 import sys
 
+from airflow.providers.postgres.hooks.postgres import PostgresHook
 from psycopg2.extensions import cursor
 
 def download_stock_data(stocks: list, period: str='5m', interval: str='5m') -> dict:
@@ -28,13 +29,9 @@ def get_stock_info(ticker_symbol: str) -> dict:
     ''' Get stock information from Yahoo Finance from the ticker symbol'''
 
     stock = yf.Ticker(ticker_symbol)
-    
-    try:
-        name = stock.info['longName']
-        sector = stock.info['sector']
-        return {'Name': name, 'Sector': sector}
-    except KeyError as e:
-        print(f"Could not find '{e.args[0]}' information for ticker symbol {ticker_symbol}")
+    name = stock.info['longName']
+    sector = stock.info['sector']
+    return {'Name': name, 'Sector': sector}
     
     
 def get_or_create_company_id(ticker_symbol: str, cur: cursor) -> int:
@@ -53,35 +50,38 @@ def get_or_create_company_id(ticker_symbol: str, cur: cursor) -> int:
         return company_id
     
     
-def insert_stock_data(stock_data: dict, cur: cursor) -> None:
+# def insert_stock_data(stock_data: dict, cur: cursor) -> None:
+def insert_stock_data(stock_data: dict, conn_id: str) -> None:
     ''' Load stock data into the price table in the database'''
+
+    hook = PostgresHook(postgres_conn_id=conn_id)
+    conn = hook.get_conn()
+    cur = conn.cursor()
 
     insert_query = """
     INSERT INTO price (company_id, date, open_price, close_price, high_price, low_price, volume)
     VALUES (%s, %s, %s, %s, %s, %s, %s);
     """
-    
+
     for stock, df in stock_data.items():
-        try:
-            for _, row in df.iterrows():
-                company_id = get_or_create_company_id(stock, cur)
-                
-                data_tuple = (
-                    company_id,
-                    pd.to_datetime(row['Datetime'], format="%b-%d-%y %H:%M"),
-                    row['Open'],
-                    row['Close'],
-                    row['High'],
-                    row['Low'],
-                    row['Volume']
-                )
-                
-                cur.execute(insert_query, data_tuple)
+        for _, row in df.iterrows():
+            company_id = get_or_create_company_id(stock, cur)
             
-            print(f'{stock} data inserted')
+            data_tuple = (
+                company_id,
+                pd.to_datetime(row['Datetime'], format="%b-%d-%y %H:%M"),
+                row['Open'],
+                row['Close'],
+                row['High'],
+                row['Low'],
+                row['Volume']
+            )
+            
+            cur.execute(insert_query, data_tuple)
         
-        except Exception as e:
-            print(f'Error inserting {stock}: {e}')
+        # conn.commit()
+            print(f'{stock} data inserted')
+    # conn.commit()
 
 
 # if __name__ == "__main__":

@@ -9,6 +9,7 @@ import psycopg2
 import argparse
 import sys
 from psycopg2.extensions import cursor
+from airflow.providers.postgres.hooks.postgres import PostgresHook
 
 from stock_price import get_or_create_company_id
 
@@ -42,23 +43,19 @@ from stock_price import get_or_create_company_id
 
 def download_stock_news(stocks: list) -> dict:
     ''' Download stock news from Finviz'''
+    news = {}
+    for stock in stocks:
+        url = f'https://finviz.com/quote.ashx?t={stock}&p=d'
+        request = Request(url=url, headers={'user-agent': 'news_scraper'})
+        response = urlopen(request)
+        
+        # parse the HTML content
+        html = BeautifulSoup(response, features='html.parser')
+        finviz_news_table = html.find(id='news-table')
+        news[stock] = finviz_news_table
 
-    try:
-        news = {}
-        for stock in stocks:
-            url = f'https://finviz.com/quote.ashx?t={stock}&p=d'
-            request = Request(url=url, headers={'user-agent': 'news_scraper'})
-            response = urlopen(request)
-            
-            # parse the HTML content
-            html = BeautifulSoup(response, features='html.parser')
-            finviz_news_table = html.find(id='news-table')
-            news[stock] = finviz_news_table
+    return news
 
-        return news
-    
-    except Exception as e:
-        print(f'Error downloading stock news: {e}')
 
 def parse_datetime(datetime_str: str, current_date: datetime) -> tuple:
     ''' Transform the datetime string into a standardised format'''
@@ -92,14 +89,11 @@ def process_news(news: dict, period: int) -> pd.DataFrame:
 
     for stock, news_item in news.items():
         for row in news_item.findAll('tr'):
-            try:
-                headline = row.find('a', class_='tab-link-news').getText().strip() # headline
-                datetime_str = row.find('td', align='right').text.strip() # date of article
-                standardized_datetime, current_date = parse_datetime(datetime_str, current_date)
-                source = row.find('div', class_='news-link-right').span.text.strip('()') # source of article
-                news_extracted.append([stock, standardized_datetime, headline, source])
-            except Exception as e:
-                print(f"Error parsing: {e}")
+            headline = row.find('a', class_='tab-link-news').getText().strip() # headline
+            datetime_str = row.find('td', align='right').text.strip() # date of article
+            standardized_datetime, current_date = parse_datetime(datetime_str, current_date)
+            source = row.find('div', class_='news-link-right').span.text.strip('()') # source of article
+            news_extracted.append([stock, standardized_datetime, headline, source])
             
     # convert to dataframe
     df = pd.DataFrame(news_extracted, columns=['Stock', 'Date', 'Headline', 'Source'])
@@ -125,30 +119,31 @@ def process_news(news: dict, period: int) -> pd.DataFrame:
     df[['sentiment_score']] = df['Sentiment'].apply(lambda x: pd.Series(extract_score(x)))
     return df
 
-def insert_stock_news(df: pd.DataFrame, cur: cursor):
+# def insert_stock_news(df: pd.DataFrame, cur: cursor):
+def insert_stock_news(df: pd.DataFrame, conn_id: str):
     ''' Insert the stock news into the database'''
 
+    hook = PostgresHook(postgres_conn_id=conn_id)
+    conn = hook.get_conn()
+    cur = conn.cursor()
+
     tweet_query = """
-    INSERT INTO Tweet_Headline (company_id, content, date) VALUES (%s, %s, %s) RETURNING tweet_id;
+        INSERT INTO Tweet_Headline (company_id, content, date) VALUES (%s, %s, %s) RETURNING tweet_id;
     """
     analysis_query = """
-    INSERT INTO Analysis (tweet_id, sentiment_score, sentiment_label) VALUES (%s, %s, %s);
+        INSERT INTO Analysis (tweet_id, sentiment_score, sentiment_label) VALUES (%s, %s, %s);
     """
-    try:
-        for index, row in df.iterrows():
-            company_id = get_or_create_company_id(row['Stock'], cur)
-            
-            # Insert into Tweet_Headline table
-            cur.execute(tweet_query, (company_id, row['Headline'], row['Date']))
-            tweet_id = cur.fetchone()[0]  # Get the generated tweet_id
+    for index, row in df.iterrows():
+        company_id = get_or_create_company_id(row['Stock'], cur)
         
-            # Insert into Analysis table
-            cur.execute(analysis_query, (tweet_id, row['sentiment_score'], row['sentiment_label']))
-
-        # conn.commit()
+        # Insert into Tweet_Headline table
+        cur.execute(tweet_query, (company_id, row['Headline'], row['Date']))
+        tweet_id = cur.fetchone()[0]  # Get the generated tweet_id
     
-    except Exception as e:
-        print(f'Error inserting: {e}')
+        # Insert into Analysis table
+        cur.execute(analysis_query, (tweet_id, row['sentiment_score'], row['sentiment_label']))
+
+    conn.commit()
 
 
 

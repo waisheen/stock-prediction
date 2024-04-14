@@ -8,3 +8,7 @@ ADD token.json .
 # Install the required dependencies
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir "apache-airflow==${AIRFLOW_VERSION}" -r requirements.txt
+
+# Grant permissions
+USER root
+RUN chmod -R 777 "/home/airflow/.cache"
