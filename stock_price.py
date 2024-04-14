@@ -1,14 +1,15 @@
 import argparse
-import yfinance as yf
+import os
 import pandas as pd
 import psycopg2
 import sys
+import yfinance as yf
 
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from psycopg2.extensions import cursor
 
-def download_stock_data(stocks: list, period: str='5m', interval: str='5m') -> dict:
-    ''' Download (extract) stock data from Yahoo Finance'''
+def download_stock_data(stocks: list, period: str='5m', interval: str='5m') -> str:
+    ''' Download (extract) stock data from Yahoo Finance. Saves the data in the directory in the format <ticker>.csv '''
     
     date_format = "%b-%d-%y %H:%M"
     stock_data = {}
@@ -21,7 +22,7 @@ def download_stock_data(stocks: list, period: str='5m', interval: str='5m') -> d
             df.reset_index(inplace=True)
         
         stock_data[stock] = df
-
+    
     return stock_data
 
 
@@ -49,8 +50,6 @@ def get_or_create_company_id(ticker_symbol: str, cur: cursor) -> int:
         company_id = cur.fetchone()[0]
         return company_id
     
-    
-# def insert_stock_data(stock_data: dict, cur: cursor) -> None:
 def insert_stock_data(stock_data: dict, conn_id: str) -> None:
     ''' Load stock data into the price table in the database'''
 
@@ -59,12 +58,13 @@ def insert_stock_data(stock_data: dict, conn_id: str) -> None:
     cur = conn.cursor()
 
     insert_query = """
-    INSERT INTO price (company_id, date, open_price, close_price, high_price, low_price, volume)
-    VALUES (%s, %s, %s, %s, %s, %s, %s);
+        INSERT INTO price (company_id, date, open_price, close_price, high_price, low_price, volume)
+        VALUES (%s, %s, %s, %s, %s, %s, %s);
     """
 
     for stock, df in stock_data.items():
         for _, row in df.iterrows():
+            print(row)
             company_id = get_or_create_company_id(stock, cur)
             
             data_tuple = (
@@ -78,11 +78,9 @@ def insert_stock_data(stock_data: dict, conn_id: str) -> None:
             )
             
             cur.execute(insert_query, data_tuple)
-        
-        # conn.commit()
             print(f'{stock} data inserted')
-    # conn.commit()
 
+    conn.commit()
 
 # if __name__ == "__main__":
     # parser = argparse.ArgumentParser(description="Download stock data and insert into PostgreSQL database")

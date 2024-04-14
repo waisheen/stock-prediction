@@ -1,47 +1,17 @@
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-from googleapiclient.discovery import build
-import pandas as pd
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
-from torch.nn.functional import softmax
-import torch
-import yfinance as yf
-import psycopg2
-from datetime import datetime, timedelta
 import argparse
+import gspread
+import pandas as pd
+import psycopg2
 import sys
-from psycopg2.extensions import cursor
+import torch
 from airflow.providers.postgres.hooks.postgres import PostgresHook
+from datetime import datetime, timedelta
+from googleapiclient.discovery import build
+from oauth2client.service_account import ServiceAccountCredentials
+from psycopg2.extensions import cursor
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
 
 from stock_price import get_or_create_company_id
-
-# # Get stock info from yfinance
-# def get_stock_info(ticker_symbol):
-#     stock = yf.Ticker(ticker_symbol)
-    
-#     try:
-#         name = stock.info['longName']
-#         sector = stock.info['sector']
-#         return {'Name': name, 'Sector': sector}
-#     except KeyError as e:
-#         return f"Could not find '{e.args[0]}' information for ticker symbol {ticker_symbol}"
-
-
-# # Get the company_id if it exists, add the company_id if not
-# def get_or_create_company_id(ticker_symbol, cur):
-#     # Check if the company exists
-#     cur.execute("SELECT company_id FROM company WHERE ticker_symbol = %s", (ticker_symbol,))
-#     result = cur.fetchone()
-    
-#     if result:
-#         return result  # Return existing company_id
-#     else:
-#         # Get company info
-#         company_info = get_stock_info(ticker_symbol)
-#         cur.execute("INSERT INTO company (company_name, ticker_symbol, sector) VALUES (%s, %s, %s) RETURNING company_id",
-#                     (company_info['Name'], ticker_symbol, company_info['Sector']))
-#         company_id = cur.fetchone()[0]
-#         return company_id
 
 def extract_label(row):
     return row[0]['label']
@@ -106,7 +76,7 @@ def extract_tweets(stocks: list, period: int=1) -> pd.DataFrame:
 
 def process_tweets(df: pd.DataFrame) -> pd.DataFrame:
     ''' Perform sentiment analysis on tweets using BERT model, and return the processed dataframe. '''
-        # Import BERT model
+    # Import BERT model
     model_name = "ahmedrachid/FinancialBERT-Sentiment-Analysis"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     sentiment_pipeline = pipeline("sentiment-analysis", model=model_name, tokenizer=tokenizer)
@@ -128,10 +98,10 @@ def insert_stock_tweets(df: pd.DataFrame, conn_id: str) -> None:
     cur = conn.cursor()
 
     tweet_query = """
-    INSERT INTO Tweet_Headline (company_id, content, date) VALUES (%s, %s, %s) RETURNING tweet_id;
+        INSERT INTO Tweet_Headline (company_id, content, date) VALUES (%s, %s, %s) RETURNING tweet_id;
     """
     analysis_query = """
-    INSERT INTO Analysis (tweet_id, sentiment_score, sentiment_label) VALUES (%s, %s, %s);
+        INSERT INTO Analysis (tweet_id, sentiment_score, sentiment_label) VALUES (%s, %s, %s);
     """
     for index, row in df.iterrows():
         company_id = get_or_create_company_id(row['Stock Name'], cur)

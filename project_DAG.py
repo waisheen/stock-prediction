@@ -1,9 +1,8 @@
+import os
 import pandas as pd
-import psycopg2
 
 from airflow.decorators import dag, task
 from datetime import datetime, timedelta
-from psycopg2.extensions import connection, cursor
 
 from stock_db import Connection
 from stock_price import download_stock_data, insert_stock_data
@@ -33,32 +32,22 @@ def stock_tweet_headline_etlt():
     @task
     def initialise_db(connection: Connection, conn_id: str) -> bool:
         ''' Connects to the database and initialises the tables. Returns True if successful, False otherwise. '''
-        try: 
-            # Connect and initialise the database
-            connection.connect(conn_id=conn_id)
-            connection.init_db()
-            return True
-            # return connection.cur
-        except Exception as e:
-            print(f'Error initialising database: {e}')
-            return False
+        connection.connect(conn_id=conn_id)
+        connection.init_db()
+        return CONN_ID
 
     ###################### STOCK PRICE ######################
     @task
-    def extract_stock_price(stocks: list) -> dict:
+    def extract_stock_price(stocks: list, period: str, interval: str) -> dict:
         ''' Loads the stock prices of the stock tickers passed in as arguments from Yahoo Finance. '''
-        stock_price_data = download_stock_data(stocks)
-        return stock_price_data
+        stock_data = download_stock_data(stocks=stocks, period=period, interval=interval)
+        return stock_data
     
     @task
-    # def load_stock_price(stock_data: dict, conn: Connection) -> bool:
     def load_stock_price(stock_data: dict, conn_id: str) -> bool:
         ''' Load the stock prices into the database '''
         try: 
-            # with conn.cursor() as cur:
-            #     insert_stock_data(stock_data, cur)
-            # conn.conn.commit()
-            insert_stock_data(stock_data, conn_id=conn_id)
+            insert_stock_data(stock_data=stock_data, conn_id=conn_id)
             return True
         except Exception as e:
             print(f'Error loading stock data: {e}')
@@ -78,13 +67,9 @@ def stock_tweet_headline_etlt():
         return df
     
     @task
-    # def load_stock_news(news_with_sentiments: pd.DataFrame, conn: connection) -> bool:
     def load_stock_news(news_with_sentiments: pd.DataFrame, conn_id: str) -> bool:
         ''' Load the stock news with sentiment analyses into the database '''
         try:
-            # with conn.cursor() as cur:
-            #     insert_stock_news(news_with_sentiments, cur)
-            # conn.commit()
             insert_stock_news(news_with_sentiments, conn_id=conn_id)
             return True
         except Exception as e:
@@ -105,13 +90,9 @@ def stock_tweet_headline_etlt():
         return df
     
     @task
-    # def load_stock_tweets(tweets_with_sentiments: pd.DataFrame, conn: connection) -> bool:
     def load_stock_tweets(tweets_with_sentiments: pd.DataFrame, conn_id: str) -> bool:
         ''' Load the tweets with sentiment analyses into the database '''
         try:
-            # with conn.cursor() as cur:
-            #     insert_stock_tweets(tweets_with_sentiments, cur)
-            # conn.commit()
             insert_stock_tweets(tweets_with_sentiments, conn_id=conn_id)
             return True
         except Exception as e:
@@ -120,27 +101,24 @@ def stock_tweet_headline_etlt():
     
     stocks_list = ['AMZN', 'TSLA', 'NVDA', 'AAPL', 'MSFT', 'META']
 
+    ###################### START OF WORKFLOW ######################
     # Initialise the database
     db_connection = Connection()
-    connection_success = initialise_db(db_connection, conn_id=CONN_ID)
+    connection_id = initialise_db(db_connection, conn_id=CONN_ID)
 
-    if connection_success:
-        # Extract and load stock price data
-        stock_data = extract_stock_price(stocks=stocks_list)    # working
-        load_success = load_stock_price(stock_data=stock_data, conn_id=CONN_ID) # not working
-        # load_success = load_stock_price(stock_data=stock_data, conn=db_connection)
-        
-        # Extract, transform and load stock news data
-        news = extract_stock_news(stocks=stocks_list) # not working
-        news_with_sentiments = transform_stock_news(news=news, period=1)    # not sure
-        load_news_success = load_stock_news(news_with_sentiments=news_with_sentiments, conn_id=CONN_ID) # not sure
-        # load_news_success = load_stock_news(news_with_sentiments=news_with_sentiments, conn=conn)
+    # Extract and load stock price data
+    stock_price_folder_dir = extract_stock_price(stocks=stocks_list, period='5m', interval='5m')
+    load_success = load_stock_price(stock_data=stock_price_folder_dir, conn_id=connection_id)
+    
+    # Extract, transform and load stock news data
+    news = extract_stock_news(stocks=stocks_list)
+    news_with_sentiments = transform_stock_news(news=news, period=1)
+    load_news_success = load_stock_news(news_with_sentiments=news_with_sentiments, conn_id=connection_id)
 
-        # # Extract, transform and load stock tweet data
-        tweets = extract_stock_tweets(stocks=stocks_list, period=564)   # working
-        tweets_with_sentiments = transform_stock_tweets(tweets=tweets)  # working
-        load_tweets_success = load_stock_tweets(tweets_with_sentiments=tweets_with_sentiments, conn_id=CONN_ID) # not working
-        # load_tweets_success = load_stock_tweets(tweets_with_sentiments=tweets_with_sentiments, conn=conn)
+    # Extract, transform and load stock tweet data
+    tweets = extract_stock_tweets(stocks=stocks_list, period=564)
+    tweets_with_sentiments = transform_stock_tweets(tweets=tweets)
+    load_tweets_success = load_stock_tweets(tweets_with_sentiments=tweets_with_sentiments, conn_id=connection_id)
     
     # Perform transformation etc.
 

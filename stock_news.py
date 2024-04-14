@@ -1,45 +1,15 @@
-from urllib.request import Request, urlopen
-from bs4 import BeautifulSoup
+import argparse
+import torch
 import pandas as pd
+import psycopg2
+import sys
+from airflow.providers.postgres.hooks.postgres import PostgresHook
+from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
-from torch.nn.functional import softmax
-import torch
-import psycopg2
-import argparse
-import sys
-from psycopg2.extensions import cursor
-from airflow.providers.postgres.hooks.postgres import PostgresHook
+from urllib.request import Request, urlopen
 
 from stock_price import get_or_create_company_id
-
-# # Get stock info from yfinance
-# def get_stock_info(ticker_symbol):
-#     stock = yf.Ticker(ticker_symbol)
-    
-#     try:
-#         name = stock.info['longName']
-#         sector = stock.info['sector']
-#         return {'Name': name, 'Sector': sector}
-#     except KeyError as e:
-#         return f"Could not find '{e.args[0]}' information for ticker symbol {ticker_symbol}"
-
-# # Get the company_id if it exists, add the company_id if not
-# def get_or_create_company_id(ticker_symbol, cur):
-#     # Check if the company exists
-#     cur.execute("SELECT company_id FROM company WHERE ticker_symbol = %s", (ticker_symbol,))
-#     result = cur.fetchone()
-    
-#     if result:
-#         return result  # Return existing company_id
-#     else:
-#         # Get company info
-#         company_info = get_stock_info(ticker_symbol)
-#         cur.execute("INSERT INTO company (company_name, ticker_symbol, sector) VALUES (%s, %s, %s) RETURNING company_id",
-#                     (company_info['Name'], ticker_symbol, company_info['Sector']))
-#         company_id = cur.fetchone()[0]
-#         return company_id
-    
 
 def download_stock_news(stocks: list) -> dict:
     ''' Download stock news from Finviz'''
@@ -52,7 +22,7 @@ def download_stock_news(stocks: list) -> dict:
         # parse the HTML content
         html = BeautifulSoup(response, features='html.parser')
         finviz_news_table = html.find(id='news-table')
-        news[stock] = finviz_news_table
+        news[stock] = str(finviz_news_table)
 
     return news
 
@@ -87,7 +57,8 @@ def process_news(news: dict, period: int) -> pd.DataFrame:
     news_extracted = []
     current_date = datetime.now()
 
-    for stock, news_item in news.items():
+    for stock, news_item_str in news.items():
+        news_item = BeautifulSoup(news_item_str, features='html.parser')
         for row in news_item.findAll('tr'):
             headline = row.find('a', class_='tab-link-news').getText().strip() # headline
             datetime_str = row.find('td', align='right').text.strip() # date of article
@@ -119,8 +90,7 @@ def process_news(news: dict, period: int) -> pd.DataFrame:
     df[['sentiment_score']] = df['Sentiment'].apply(lambda x: pd.Series(extract_score(x)))
     return df
 
-# def insert_stock_news(df: pd.DataFrame, cur: cursor):
-def insert_stock_news(df: pd.DataFrame, conn_id: str):
+def insert_stock_news(df: pd.DataFrame, conn_id: str) -> None:
     ''' Insert the stock news into the database'''
 
     hook = PostgresHook(postgres_conn_id=conn_id)
