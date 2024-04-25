@@ -1,14 +1,9 @@
-import argparse
-import os
 import pandas as pd
-import psycopg2
-import sys
 import yfinance as yf
 
 from airflow.providers.postgres.hooks.postgres import PostgresHook
-from psycopg2.extensions import cursor
 
-def download_stock_data(stocks: list, period: str='5m', interval: str='5m') -> str:
+def download_stock_data(stocks: list, period: str='5m', interval: str='5m') -> dict:
     ''' Download (extract) stock data from Yahoo Finance. Saves the data in the directory in the format <ticker>.csv '''
     
     date_format = "%b-%d-%y %H:%M"
@@ -35,8 +30,12 @@ def get_stock_info(ticker_symbol: str) -> dict:
     return {'Name': name, 'Sector': sector}
     
     
-def get_or_create_company_id(ticker_symbol: str, cur: cursor) -> int:
+def get_or_create_company_id(ticker_symbol: str, conn_id: str) -> int:
     ''' Get the company_id if it exists, add the company_id and its information into the company table if not'''
+
+    hook = PostgresHook(postgres_conn_id=conn_id)
+    conn = hook.get_conn()
+    cur = conn.cursor()
 
     cur.execute("SELECT company_id FROM company WHERE ticker_symbol = %s", (ticker_symbol,))
     result = cur.fetchone()
@@ -48,6 +47,10 @@ def get_or_create_company_id(ticker_symbol: str, cur: cursor) -> int:
         cur.execute("INSERT INTO company (company_name, ticker_symbol, sector) VALUES (%s, %s, %s) RETURNING company_id",
                     (company_info['Name'], ticker_symbol, company_info['Sector']))
         company_id = cur.fetchone()[0]
+
+        conn.commit()
+        cur.close()
+        conn.close()
         return company_id
     
 def insert_stock_data(stock_data: dict, conn_id: str) -> None:
@@ -62,9 +65,10 @@ def insert_stock_data(stock_data: dict, conn_id: str) -> None:
         VALUES (%s, %s, %s, %s, %s, %s, %s);
     """
 
+    total_rows = 0
     for stock, df in stock_data.items():
+        total_rows += len(df)
         for _, row in df.iterrows():
-            print(row)
             company_id = get_or_create_company_id(stock, cur)
             
             data_tuple = (
@@ -81,34 +85,6 @@ def insert_stock_data(stock_data: dict, conn_id: str) -> None:
             print(f'{stock} data inserted')
 
     conn.commit()
-
-# if __name__ == "__main__":
-    # parser = argparse.ArgumentParser(description="Download stock data and insert into PostgreSQL database")
-    # parser.add_argument("--stocks", nargs="+", help="List of stock tickers")
-    # args = parser.parse_args()
-
-    # if args.stocks:
-    #     stocks = args.stocks
-    # else:
-    #     print("No stocks provided.")
-    #     sys.exit()
-
-    # stock_data = download_stock_data(stocks)
-
-    # params = {
-    #     'dbname': 'is3107',
-    #     'user': 'is3107',
-    #     'password': 'is3107',
-    #     'host': 'localhost',
-    #     'port': 5433
-    # }
-
-    # conn = psycopg2.connect(**params)
-    # cur = conn.cursor()
-
-    # insert_stock_data(stock_data, cur)
-
-    # conn.commit()
-    # conn.close()
-    # print("Stock data inserted into database successfully.")
-    # return stock_data
+    cur.close()
+    conn.close()
+    print(f'Inserted {total_rows} stock prices into the database.')

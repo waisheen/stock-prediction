@@ -12,7 +12,6 @@ class Connection:
         self.cur = self.conn.cursor()
 
     def exit(self) -> bool:
-        self.conn.commit()
         self.cur.close()
         self.conn.close()
     
@@ -56,3 +55,4 @@ class Connection:
         '''
         self.cur.execute(query)
         self.conn.commit()
+        self.exit()

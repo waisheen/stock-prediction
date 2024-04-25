@@ -2,9 +2,12 @@ apache-airflow-providers-postgres
 beautifulsoup4
 google-api-python-client
 gspread
+gspread-dataframe
 oauth2client
 pandas
 psycopg2-binary
+scikit-learn
+tensorflow
 torch
 transformers
 yfinance

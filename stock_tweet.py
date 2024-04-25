@@ -1,14 +1,10 @@
-import argparse
 import gspread
 import pandas as pd
-import psycopg2
-import sys
 import torch
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from datetime import datetime, timedelta
 from googleapiclient.discovery import build
 from oauth2client.service_account import ServiceAccountCredentials
-from psycopg2.extensions import cursor
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
 
 from stock_price import get_or_create_company_id
@@ -61,10 +57,10 @@ def extract_tweets(stocks: list, period: int=1) -> pd.DataFrame:
     
     # Filter by date
     today = datetime.now()
-    time_period = today - timedelta(days=period)
-    all_data_df['Date'] = pd.to_datetime(all_data_df['Date'])
+    time_period = today - timedelta(hours=period)
+    all_data_df['Date'] = pd.to_datetime(all_data_df['Mock_Date'])
     all_data_df['Date'] = all_data_df['Date'].dt.tz_localize(None) # Remove timezone
-    all_data_df = all_data_df[all_data_df['Date'] >= time_period]
+    all_data_df = all_data_df[(all_data_df['Date'] >= time_period) & (all_data_df['Date'] <= today)]
     
     # Filter by stocks
     all_data_df = all_data_df[all_data_df['Stock Name'].isin(stocks)]
@@ -74,8 +70,15 @@ def extract_tweets(stocks: list, period: int=1) -> pd.DataFrame:
     return all_data_df
 
 
-def process_tweets(df: pd.DataFrame) -> pd.DataFrame:
+def process_tweets(df: pd.DataFrame, conn_id: str) -> pd.DataFrame:
     ''' Perform sentiment analysis on tweets using BERT model, and return the processed dataframe. '''
+    if df.empty:
+        print('No tweets to process')
+        return df
+    
+    # For each stock, add the respective company_id from Company table (foreign key)
+    df['company_id'] = df['Stock Name'].apply(lambda x: get_or_create_company_id(x, conn_id=conn_id))
+
     # Import BERT model
     model_name = "ahmedrachid/FinancialBERT-Sentiment-Analysis"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -91,7 +94,6 @@ def process_tweets(df: pd.DataFrame) -> pd.DataFrame:
     
     return df
     
-# def insert_stock_tweets(df: pd.DataFrame, cur: cursor) -> None:
 def insert_stock_tweets(df: pd.DataFrame, conn_id: str) -> None:
     hook = PostgresHook(postgres_conn_id=conn_id)
     conn = hook.get_conn()
@@ -103,55 +105,15 @@ def insert_stock_tweets(df: pd.DataFrame, conn_id: str) -> None:
     analysis_query = """
         INSERT INTO Analysis (tweet_id, sentiment_score, sentiment_label) VALUES (%s, %s, %s);
     """
-    for index, row in df.iterrows():
-        company_id = get_or_create_company_id(row['Stock Name'], cur)
-        
+    for index, row in df.iterrows():       
         # Insert into Tweet_Headline table
-        cur.execute(tweet_query, (company_id, row['Tweet'], row['Date']))
+        cur.execute(tweet_query, (row['company_id'], row['Tweet'], row['Date']))
         tweet_id = cur.fetchone()[0]  # Get the generated tweet_id
     
         # Insert into Analysis table
         cur.execute(analysis_query, (tweet_id, row['sentiment_score'], row['sentiment_label']))
 
     conn.commit()
-
-
-# if __name__ == "__main__":
-#     parser = argparse.ArgumentParser(description="Download stock tweets and insert into PostgreSQL database")
-#     parser.add_argument("--stocks", nargs="+", help="List of stock tickers")
-#     parser.add_argument("--period", help="Number of days of tweets extracted", default=1, type=int)
-#     args = parser.parse_args()
-
-#     if args.stocks:
-#         stocks = args.stocks
-#     else:
-#         print("No stocks provided.")
-#         print('Exiting...')
-#         sys.exit()
-
-#     tweets = extract_tweets(stocks, period=args.period)
-    
-#     if len(tweets) == 0:
-#         print('No tweets extracted')
-#         print('Exiting...')
-#         sys.exit()
-    
-#     df = process_tweets(tweets)
-        
-#     params = {
-#         'dbname': 'IS3107',
-#         'user': 'postgres',
-#         'password': 'is3107',
-#         'host': 'localhost',
-#         'port': 5432
-#     }
-
-#     conn = psycopg2.connect(**params)
-#     cur = conn.cursor()
-
-#     insert_stock_tweets(df, cur)
-
-#     conn.commit()
-#     conn.close()
-    
-#     print("Stock news inserted into database successfully.")
+    cur.close()
+    conn.close()
+    print(f'Inserted {len(df)} tweets into the database.')

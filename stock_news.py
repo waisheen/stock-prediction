@@ -1,8 +1,5 @@
-import argparse
 import torch
 import pandas as pd
-import psycopg2
-import sys
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
@@ -51,7 +48,7 @@ def extract_label(row):
 def extract_score(row):
     return row[0]['score']
 
-def process_news(news: dict, period: int) -> pd.DataFrame:
+def process_news(news: dict, period: int, conn_id: str) -> pd.DataFrame:
     ''' Transform the news extracted from Finviz and return a dataframe with sentiment analysis'''
     
     news_extracted = []
@@ -71,10 +68,13 @@ def process_news(news: dict, period: int) -> pd.DataFrame:
     
     # Filter by date
     today = datetime.now()
-    time_period = today - timedelta(days=period)
+    time_period = today - timedelta(hours=period)
     df['Date'] = pd.to_datetime(df['Date'], format='%b-%d-%y %H:%M')
     df['Date'] = df['Date'].dt.tz_localize(None) # Remove timezone
     df = df[df['Date'] >= time_period]
+
+    # For each stock, add the respective company_id from Company table (foreign key)
+    df['company_id'] = df['Stock'].apply(lambda x: get_or_create_company_id(x, conn_id=conn_id))
     
     # Load BERT model
     model_name = "ahmedrachid/FinancialBERT-Sentiment-Analysis"
@@ -82,10 +82,12 @@ def process_news(news: dict, period: int) -> pd.DataFrame:
     sentiment_pipeline = pipeline("sentiment-analysis", model=model_name, tokenizer=tokenizer)
     model = AutoModelForSequenceClassification.from_pretrained(model_name)
 
+    # Perform sentiment analysis for each headline
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
     df['Sentiment'] = df['Headline'].apply(lambda x: sentiment_pipeline(x))
     
+    # Separate the sentiment label and score into separate columns
     df[['sentiment_label']] = df['Sentiment'].apply(lambda x: pd.Series(extract_label(x)))
     df[['sentiment_score']] = df['Sentiment'].apply(lambda x: pd.Series(extract_score(x)))
     return df
@@ -103,55 +105,15 @@ def insert_stock_news(df: pd.DataFrame, conn_id: str) -> None:
     analysis_query = """
         INSERT INTO Analysis (tweet_id, sentiment_score, sentiment_label) VALUES (%s, %s, %s);
     """
-    for index, row in df.iterrows():
-        company_id = get_or_create_company_id(row['Stock'], cur)
-        
+    for index, row in df.iterrows():      
         # Insert into Tweet_Headline table
-        cur.execute(tweet_query, (company_id, row['Headline'], row['Date']))
+        cur.execute(tweet_query, (row['company_id'], row['Headline'], row['Date']))
         tweet_id = cur.fetchone()[0]  # Get the generated tweet_id
     
         # Insert into Analysis table
         cur.execute(analysis_query, (tweet_id, row['sentiment_score'], row['sentiment_label']))
 
     conn.commit()
-
-
-
-# if __name__ == "__main__":
-#     parser = argparse.ArgumentParser(description="Download stock news and insert into PostgreSQL database")
-#     parser.add_argument("--stocks", nargs="+", help="List of stock tickers")
-#     parser.add_argument("--period", help="Number of days of tweets extracted", default=1, type=int)
-#     args = parser.parse_args()
-
-#     if args.stocks:
-#         stocks = args.stocks
-#     else:
-#         print("No stocks provided.")
-#         print('Exiting...')
-#         sys.exit()
-
-#     news = download_stock_news(stocks)
-#     df = process_news(news, args.period)
-    
-#     if df.empty:
-#         print('No news downloaded')
-#         print('Exiting...')
-#         sys.exit()
-
-#     params = {
-#         'dbname': 'IS3107',
-#         'user': 'postgres',
-#         'password': 'is3107',
-#         'host': 'localhost',
-#         'port': 5432
-#     }
-
-#     conn = psycopg2.connect(**params)
-#     cur = conn.cursor()
-
-#     insert_stock_news(df, cur)
-
-#     conn.commit()
-#     conn.close()
-    
-#     print("Stock news inserted into database successfully.")
+    cur.close()
+    conn.close()
+    print(f'Inserted {len(df)} news headlines into the database.')
