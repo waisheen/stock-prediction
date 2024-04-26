@@ -69,7 +69,7 @@ def insert_stock_data(stock_data: dict, conn_id: str) -> None:
     for stock, df in stock_data.items():
         total_rows += len(df)
         for _, row in df.iterrows():
-            company_id = get_or_create_company_id(stock, cur)
+            company_id = get_or_create_company_id(stock, conn_id)
             
             data_tuple = (
                 company_id,

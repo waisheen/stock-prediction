@@ -19,7 +19,7 @@ class Analysis:
         self.query.exit()
     
     def process_moving_averages_for_stock(self, stock_symbol: str, window_size: int = 5) -> pd.DataFrame:
-        ''' Prepare data for a single stock with moving average feature. '''
+        ''' Prepare data for a single stock with moving average feature. Default window size is 5. '''
         df_price = self.query.avg_stock_price(stock_symbol)
         df_sentiment = self.query.avg_daily_sentiment(stock_symbol)
         df_merged = pd.merge(df_price, df_sentiment, on=['date', 'company_name'], how='inner')
@@ -31,7 +31,7 @@ class Analysis:
         df_filtered['date'] = pd.to_datetime(df_filtered['date'])
         df_filtered.set_index('date', inplace=True)
 
-        # calculate moving average
+        # Calculate moving average
         df_filtered['moving_average'] = df_filtered['average_stock_price'].rolling(window=window_size, min_periods=1).mean()
 
         # fill NaN values in 'moving_average' column with forward fill
@@ -42,14 +42,16 @@ class Analysis:
 
         return df_filtered[['sentiment_value', 'moving_average']], df_filtered['average_stock_price'].tolist()
     
-    def create_dataset(self, X: list, y: list, time_steps: int = 1):
-        ''' Create dataset for LSTM. '''
-        Xs, ys = [], []
-        for i in range(len(X) - time_steps):
-            v = X[i:(i + time_steps)]
-            Xs.append(v)
-            ys.append(y[i + time_steps])
-        return np.array(Xs), np.array(ys)
+    def create_dataset(self, features: list, target: list, time_steps: int = 1):
+        ''' Create dataset for LSTM model. '''
+        X_samples, y_samples = [], []
+        for i in range(len(features) - time_steps):
+            X_sample = features[i:(i + time_steps)]
+            X_samples.append(X_sample)
+            y_sample = target[i + time_steps]
+            y_samples.append(y_sample)
+        return np.array(X_samples), np.array(y_samples)
+
     
     def train_lstm(self, X_train, y_train):
         ''' Train LSTM model.'''
@@ -90,12 +92,9 @@ class Analysis:
             # Create dataset for LSTM
             time_steps = 7
             X, y = self.create_dataset(scaled_features, scaled_target, time_steps)
-            train_size = int(len(X) * 0.8)
-            X_train, X_test = X[:train_size], X[train_size:]
-            y_train, y_test = y[:train_size], y[train_size:]
             
             # Train LSTM model
-            model = self.train_lstm(X_train, y_train)
+            model = self.train_lstm(X, y)
             y_pred_scaled = model.predict(X)
             y_pred = scaler_target.inverse_transform(y_pred_scaled)
             dates = features.index[time_steps:]

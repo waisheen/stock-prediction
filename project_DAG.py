@@ -9,7 +9,12 @@ from stock_price import download_stock_data, insert_stock_data
 from stock_news import download_stock_news, process_news, insert_stock_news
 from stock_tweet import extract_tweets, process_tweets, insert_stock_tweets
 
-CONN_ID = 'is3107_cloud'
+# Connection ID for the database. Make sure connection is set up in Airflow UI
+CONN_ID = 'is3107_cloud' # CHANGE THIS TO THE CREATED CONNECTION ID
+
+# Set how many hours of data to extract, in hours
+PERIOD_STR = '8h'
+PERIOD = 8
 
 default_args = {
     "owner": "is3107_grp24",
@@ -17,6 +22,7 @@ default_args = {
     "email": ["chongwaisheen678@gmail.com"],
     "email_on_failure": False,
     "email_on_retry": False,
+    # If a task fails, retry it thrice after 10 minutes
     "retries": 3,
     "retry_delay": timedelta(minutes=10)
 }
@@ -115,6 +121,7 @@ def stock_tweet_headline_etlt():
                     'features': features_df,
                     'target': target_df
                 }
+            
             return transformed_data
         else:
             print(prices, news, tweets)
@@ -144,16 +151,16 @@ def stock_tweet_headline_etlt():
     connection_id = initialise_db(db_connection, conn_id=CONN_ID)
 
     # Extract and load stock price data
-    stock_prices = extract_stock_price(stocks=stocks_list, period='8h', interval='1h')
+    stock_prices = extract_stock_price(stocks=stocks_list, period=PERIOD_STR, interval='1h')
     load_prices_success = load_stock_price(stock_data=stock_prices, conn_id=connection_id)
     
     # Extract, transform and load stock news data
     news = extract_stock_news(stocks=stocks_list)
-    transformed_news = transform_stock_news(news=news, period=8, conn_id=connection_id) # Note that maximum number of days is 100 (2,400 hours)
+    transformed_news = transform_stock_news(news=news, period=PERIOD, conn_id=connection_id) # Note that maximum number of days is 100 (2,400 hours)
     load_news_success = load_stock_news(news_with_sentiments=transformed_news, conn_id=CONN_ID)
 
     # Extract, transform and load stock tweet data
-    tweets = extract_stock_tweets(stocks=stocks_list, period=8)
+    tweets = extract_stock_tweets(stocks=stocks_list, period=PERIOD)
     transformed_tweets = transform_stock_tweets(tweets=tweets, conn_id=connection_id)
     load_tweets_success = load_stock_tweets(tweets_with_sentiments=transformed_tweets, conn_id=CONN_ID)
     

@@ -105,7 +105,7 @@ def insert_stock_tweets(df: pd.DataFrame, conn_id: str) -> None:
     analysis_query = """
         INSERT INTO Analysis (tweet_id, sentiment_score, sentiment_label) VALUES (%s, %s, %s);
     """
-    for index, row in df.iterrows():       
+    for index, row in df.iterrows():
         # Insert into Tweet_Headline table
         cur.execute(tweet_query, (row['company_id'], row['Tweet'], row['Date']))
         tweet_id = cur.fetchone()[0]  # Get the generated tweet_id
