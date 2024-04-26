@@ -6,13 +6,13 @@
 Make sure you possess all the following files, and that they are placed in the correct folder directory.
 
 To be placed in the root directory:
-- `token.json`: credentials to access the downloaded twitter data in google sheets
-- `neon.json`: parameters for the PostgreSQL database hosted on Neon
-- `docker-compose.yaml`: to build the docker container where airflow will run 
-- `Dockerfile`
-- `requirements.txt`
+- `token.json`: Contains credentials to access the downloaded Twitter data in Google Sheets.
+- `neon.json`: Stores parameters for the PostgreSQL database hosted on Neon.
+- `docker-compose.yaml`: Used to build the Docker container where Airflow will run.
+- `Dockerfile`: Used to build the image and perform configuration of the Docker container.
+- `requirements.txt`: Contains the list of required packages.
 
-> Note: `token.json` and `neon.json` must be requested from  separately from the contributors
+> Note: `token.json` and `neon.json` must be requested separately from the contributors
 
 ### Setting up Airflow in Docker 
 1. Navigate to the directory where `docker-compose.yaml` is located
