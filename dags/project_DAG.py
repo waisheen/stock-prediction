@@ -10,7 +10,7 @@ from stock_news import download_stock_news, process_news, insert_stock_news
 from stock_tweet import extract_tweets, process_tweets, insert_stock_tweets
 
 # Connection ID for the database. Make sure connection is set up in Airflow UI
-CONN_ID = 'is3107_cloud' # CHANGE THIS TO THE CREATED CONNECTION ID
+CONN_ID = '' # TO BE SET
 
 # Set how many hours of data to extract, in hours
 PERIOD_STR = '8h'
