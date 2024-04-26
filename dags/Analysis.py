@@ -139,5 +139,5 @@ class Analysis:
                 worksheet = sh.add_worksheet(title="Sheet1", rows="10000", cols="20")
 
         set_with_dataframe(worksheet, df_results, include_index=False)
-        print(f'Successfully stored {len(df_results)}.')
+        print(f'Successfully stored {len(df_results)} predictions.')
         return
